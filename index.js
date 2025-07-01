@@ -1,18 +1,12 @@
 const express = require("express");
 const cors = require("cors");
 const bcrypt = require("bcryptjs");
-const jwt = require("jsonwebtoken");
 const { MongoClient, ObjectId, ServerApiVersion } = require("mongodb");
 require("dotenv").config();
 
 // Config
 const app = express();
-app.use(
-  cors({
-    origin: "http://localhost:5173",
-    credentials: true,
-  })
-);
+app.use(cors());
 app.use(express.json());
 
 const PORT = process.env.PORT || 5000;
@@ -42,7 +36,7 @@ async function run() {
       try {
         const existingUser = await usersCollection.findOne({ email });
         if (existingUser) {
-          return res.status(400).json({ error: "Email already exists" });
+          return res.status(400).send({ error: "Email already exists" });
         }
 
         const hashedPassword = await bcrypt.hash(password, 10);
@@ -50,32 +44,24 @@ async function run() {
 
         await usersCollection.insertOne(newUser);
 
-        res.status(201).json({ message: "User registered successfully" });
+        res.status(201).send({ message: "User registered successfully" });
       } catch (error) {
-        res.status(500).json({ error: "Registration failed" });
+        res.status(500).send({ error: "Registration failed" });
       }
     });
 
-    app.get("/api/users", async (req, res) => {
-      try {
-        const users = await usersCollection.find().toArray();
-        res.json(users);
-      } catch (error) {
-        res.status(500).json({ error: "Failed to fetch users" });
-      }
-    });
-    // Login and return JWT token
+    // Login user
     app.post("/auth/login", async (req, res) => {
       const { email, password } = req.body;
       try {
         const user = await usersCollection.findOne({ email });
         if (!user) {
-          return res.status(401).json({ error: "user not found" });
+          return res.status(401).send({ error: "user not found" });
         }
 
         const isMatch = await bcrypt.compare(password, user.password);
         if (!isMatch) {
-          return res.status(401).json({ error: "Wrong password " });
+          return res.status(401).send({ error: "Wrong password " });
         }
 
         res.send({
@@ -86,32 +72,38 @@ async function run() {
           },
         });
       } catch (error) {
-        res.status(500).json({ error: "Login failed" });
+        res.status(500).send({ error: "Login failed" });
       }
     });
 
     app.get("/events", async (req, res) => {
       try {
-        const search = req.query.search || "";
+        const search = req.query.search?.trim() || "";
         const sortOrder = req.query.sort === "asc" ? 1 : -1;
 
-        const query = search
-          ? { title: { $regex: search, $options: "i" } }
-          : {};
+        // Build filter query
+        const query = {
+          $or: [
+            { title: { $regex: search, $options: "i" } },
+            { location: { $regex: search, $options: "i" } },
+          ],
+        };
+
+        if (!search) delete query.$or;
 
         const events = await eventsCollection
           .find(query)
-          .sort({ datetime: sortOrder }) // sort by datetime field
+          .sort({ datetime: sortOrder })
           .toArray();
 
-        res.json(events);
+        res.send(events);
       } catch (err) {
-        res.status(500).json({ message: "Internal server error" });
+        console.error("Error fetching events:", err);
+        res.status(500).send({ message: "Internal server error" });
       }
     });
 
-    // get limited events
-    // GET /events/limited - Get 6 latest events
+    // GET /events/limited - Get 8 latest events
     app.get("/events/limited", async (req, res) => {
       try {
         const events = await eventsCollection
@@ -120,12 +112,13 @@ async function run() {
           .limit(8)
           .toArray();
 
-        res.status(200).json(events);
+        res.status(200).send(events);
       } catch (error) {
-        console.error("Failed to fetch limited events:", error);
-        res.status(500).json({ message: "Internal Server Error" });
+        res.status(500).send({ message: "Internal Server Error" });
       }
     });
+
+    // Post event
 
     app.post(
       "/add/event",
@@ -176,7 +169,6 @@ async function run() {
     });
 
     // update events
-    // PUT /my-events/:id
     app.put("/my-events/:id", async (req, res) => {
       try {
         const eventId = req.params.id;
@@ -187,9 +179,9 @@ async function run() {
           { $set: updatedData }
         );
 
-        res.json(result);
+        res.send(result);
       } catch (err) {
-        res.status(500).json({ message: "Failed to update event" });
+        res.status(500).send({ message: "Failed to update event" });
       }
     });
 
@@ -197,20 +189,17 @@ async function run() {
     app.get("/my-events", async (req, res) => {
       try {
         const email = req.query.email;
-        console.log(email);
 
         const query = { createdBy: email };
         const events = await eventsCollection.find(query).toArray();
-        console.log(events);
 
-        res.json(events);
+        res.send(events);
       } catch (err) {
-        res.status(500).json({ message: "Internal server error" });
+        res.status(500).send({ message: "Internal server error" });
       }
     });
 
     // delete
-    // DELETE /my-events/:id
     app.delete("/my-events/:id", async (req, res) => {
       try {
         const eventId = req.params.id;
@@ -219,9 +208,9 @@ async function run() {
           _id: new ObjectId(eventId),
         });
 
-        res.json(result);
+        res.send(result);
       } catch (err) {
-        res.status(500).json({ message: "Failed to delete event" });
+        res.status(500).send({ message: "Failed to delete event" });
       }
     });
   } finally {
